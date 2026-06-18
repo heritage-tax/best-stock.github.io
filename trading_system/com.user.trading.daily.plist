@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS launchd: 매 평일 15:40(장 마감 후) 일일 권고 실행.
+     설치: cp 이 파일 ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.user.trading.daily.plist
+     경로/유저는 본인 환경에 맞게 수정. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.user.trading.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string><string>-lc</string>
+    <string>source $HOME/trading/config.sh && cd $HOME/best-stock.github.io/trading_system && /usr/bin/python3 daily.py >> $HOME/trading/daily.log 2>&1</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>40</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>40</integer></dict>
+  </array>
+  <key>RunAtLoad</key><false/>
+</dict></plist>
