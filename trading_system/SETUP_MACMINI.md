@@ -3,18 +3,17 @@
 맥미니 **터미널**(또는 거기 켜둔 **Claude Code**)에 아래를 순서대로 실행/지시하면,
 이후엔 *손 안 대도* 장중 자동으로 텔레그램 신호가 오고, 회사에서도 원격으로 점검할 수 있습니다.
 
-> 전제: 맥미니에 Python3 설치됨. 최신 코드는 아직 GitHub에 못 올렸으니(클라우드 세션 쓰기권한 막힘)
-> **최신 zip을 맥미니로 가져오는 것부터** 시작합니다.
+> 전제: 맥미니에 Python3·git 설치됨. **GitHub 쓰기권한 해결됨** → 이제 zip 수동전달 없이
+> 맥미니에서 바로 `git clone` 으로 최신 코드를 받습니다.
 
-## A. 최신 코드 가져오기 (zip)
-1. 맥미니 브라우저로 **claude.ai → 이 대화** 열어 마지막 **`kospi_research_bundle.zip`** 다운로드
-   (또는 폰에 받은 zip을 AirDrop/`scp`로 맥미니에 전송)
-2. 압축 해제:
+## A. 최신 코드 가져오기 (git clone)
 ```bash
-mkdir -p ~/best-stock.github.io && cd ~/best-stock.github.io
-unzip -o ~/Downloads/kospi_research_bundle.zip      # research/ 와 trading_system/ 가 풀림
+cd ~
+git clone -b claude/quirky-johnson-i2w002 https://github.com/heritage-tax/best-stock.github.io.git
+cd ~/best-stock.github.io
 ls trading_system/        # monitor.py, daily.py, gbm_model.py ... 확인
 ```
+> 이미 클론해 둔 적 있으면: `cd ~/best-stock.github.io && git pull origin claude/quirky-johnson-i2w002`
 
 ## B. 의존성
 ```bash
