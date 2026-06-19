@@ -43,9 +43,20 @@ def format_msg(date, view, spec, qc):
     lines.append("\n⚠️ 참고용. 매수/매도는 직접 판단·실행하세요.")
     return "\n".join(lines)
 
+def maybe_retrain():
+    """월1회 GBM 재학습 훅 (모델 없거나 30일 경과 시)."""
+    try:
+        import gbm_model as G
+        if G.needs_retrain():
+            _, n = G.train()
+            print(f"[daily] GBM 재학습 완료 ({n:,}행)")
+    except Exception as e:
+        print(f"[daily] GBM 재학습 생략: {type(e).__name__} ({e})")
+
 def main():
     if "--no-fetch" not in sys.argv:
         refresh_data()
+    maybe_retrain()
     ks = D.prices('^KS200')
     if not ks:
         TG.send("⚠️ 데이터 없음 — 권고 생성 실패. 데이터 갱신 확인 필요.")

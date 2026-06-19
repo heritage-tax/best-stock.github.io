@@ -1,10 +1,15 @@
-"""종목선정팀: 전략 신호로 유니버스 스캔·필터·랭킹."""
+"""종목선정팀: 전략 신호(국면 게이트)로 후보 필터 → GBM 예측수익으로 재랭킹(없으면 손코딩 점수)."""
 from dataclasses import dataclass
 import data as D
+try:
+    import gbm_model as G
+except Exception:
+    G = None
 
 @dataclass
 class Candidate:
     code: str; name: str; entry: float; stop: float; target: float; score: float; reason: str
+    gbm: float = None   # GBM 예측 10일수익(있으면 랭킹 기준)
 
 def _i(dts, date):
     cand = [k for k, d in enumerate(dts) if d <= date]
@@ -20,6 +25,7 @@ def _rsi(C, n, i):
 
 def pick(spec, date, universe=None, max_cands=None):
     universe = universe or D.universe()
+    model = G.active_model() if G is not None else None   # 국면 게이트 안에서 재랭킹용
     out = []
     for u in universe:
         p = D.prices(u['code'])
@@ -31,8 +37,15 @@ def pick(spec, date, universe=None, max_cands=None):
         if spec.signal == "meanrev_confluence": c = _meanrev(spec, C, i, u['code'], u['name'])
         elif spec.signal == "momentum_overnight": c = _momentum(spec, C, i, u['code'], u['name'])
         elif spec.signal == "defensive": c = _defensive(spec, C, i, u['code'], u['name'])
-        if c: out.append(c)
-    out.sort(key=lambda x: -x.score)
+        if c:
+            if model is not None:
+                g = G.predict_at(model, C, i)
+                if g is not None:
+                    c.gbm = g; c.reason += f" | GBM {g*100:+.1f}%"
+            out.append(c)
+    # GBM 예측이 있으면 그걸로 랭킹, 없으면 손코딩 score
+    use_gbm = model is not None and any(x.gbm is not None for x in out)
+    out.sort(key=lambda x: -(x.gbm if (use_gbm and x.gbm is not None) else x.score))
     return out[:(max_cands or spec.sizing.get('slots', 15))]
 
 def _meanrev(spec, C, i, code, name):

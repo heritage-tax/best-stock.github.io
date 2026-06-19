@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS launchd: 실시간 모니터링 상주 데몬. monitor.py가 내부에서 장중에만 INTERVAL마다 점검·루프.
+     KeepAlive=true 라 크래시/재부팅 시 자동 재시작.
+     설치: cp 이 파일 ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.user.trading.monitor.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.user.trading.monitor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string><string>-lc</string>
+    <string>source $HOME/trading/config.sh && cd $HOME/best-stock.github.io/trading_system && exec /usr/bin/python3 monitor.py >> $HOME/trading/monitor.log 2>&1</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
