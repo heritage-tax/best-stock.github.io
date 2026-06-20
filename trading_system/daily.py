@@ -8,7 +8,7 @@
 """
 import sys, os, subprocess, datetime
 import data as D, regime as R, strategy as S, selection as SEL, qc as QC
-import notify_telegram as TG
+import notify_telegram as TG, signal_log as SL
 
 EXPOSURE = float(os.environ.get("EXPOSURE", "1.5"))   # 튜닝 결론: 1.5x 권장
 
@@ -57,7 +57,7 @@ def main():
     if "--no-fetch" not in sys.argv:
         refresh_data()
     maybe_retrain()
-    ks = D.prices('^KS200')
+    ks = D.prices(D.BENCH)
     if not ks:
         TG.send("⚠️ 데이터 없음 — 권고 생성 실패. 데이터 갱신 확인 필요.")
         return
@@ -70,7 +70,13 @@ def main():
     qc = QC.validate(spec, cands, view, asof=date)
     msg = format_msg(date, view, spec, qc)
     ok = TG.send(msg)
-    print(f"[daily] {date} 권고 발송 {'성공' if ok else '(콘솔)'} | {view.regime.value}/{view.phase} | 종목 {len(qc.approved_orders)}")
+    # 트랙레코드: 오늘 권고 기록 + 과거 신호 채점(진입후 N거래일 경과분)
+    SL.log_signals('buy', qc.approved_orders, view.regime.value, date)
+    scored = SL.score()
+    print(f"[daily] {date} 권고 발송 {'성공' if ok else '(콘솔)'} | {view.regime.value}/{view.phase} | "
+          f"종목 {len(qc.approved_orders)} | 트랙레코드 신규채점 {scored}건")
+    if datetime.date.today().weekday() == 4:   # 금요일 → 주간 트랙레코드 요약 발송
+        TG.send(SL.summary())
 
 if __name__ == "__main__":
     main()

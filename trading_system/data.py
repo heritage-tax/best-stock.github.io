@@ -7,6 +7,8 @@ from functools import lru_cache
 YH = os.environ.get('YH_DIR', '/tmp/yh')
 UNIV_CSV = os.environ.get('UNIV_CSV', '/tmp/kospi200.csv')
 KOSDAQ_CSV = os.environ.get('KOSDAQ_CSV', '')
+# 벤치마크: 야후 ^KS200은 지연/누락, 069500(KODEX200)은 이상봉 多 → ^KS11(KOSPI종합, 최신·청결) 사용.
+BENCH = os.environ.get('BENCH_SYMBOL', '^KS11')
 
 @lru_cache(maxsize=4096)
 def _load_raw(sym):
@@ -16,14 +18,16 @@ def _load_raw(sym):
     j = json.load(open(fp)); res = j['chart']['result'][0]
     ts = res['timestamp']; q = res['indicators']['quote'][0]
     adj = res['indicators']['adjclose'][0]['adjclose'] if 'adjclose' in res['indicators'] else None
+    vols = q.get('volume')
     out = []
     for i, t in enumerate(ts):
         o, h, l, c = q['open'][i], q['high'][i], q['low'][i], q['close'][i]
         if c is None or c <= 0:
             continue
         ac = adj[i] if (adj and adj[i] is not None) else c
+        v = (vols[i] if (vols and vols[i] is not None) else 0)
         d = datetime.fromtimestamp(t, tz=timezone.utc).strftime('%Y-%m-%d')
-        out.append({'date': d, 'open': o, 'high': h, 'low': l, 'close': c, 'adj': ac})
+        out.append({'date': d, 'open': o, 'high': h, 'low': l, 'close': c, 'adj': ac, 'vol': v})
     return tuple(out)   # hashable for cache
 
 @lru_cache(maxsize=4096)
@@ -32,6 +36,14 @@ def prices(sym):
     if not raw:
         return None
     return tuple((r['date'], r['adj']) for r in raw)
+
+@lru_cache(maxsize=4096)
+def volumes(sym):
+    """prices(sym)와 동일 인덱스로 정렬된 거래량 시리즈 (GBM 거래량 피처용)."""
+    raw = _load_raw(sym)
+    if not raw:
+        return None
+    return tuple(r['vol'] for r in raw)
 
 def ohlc(sym):
     return _load_raw(sym)

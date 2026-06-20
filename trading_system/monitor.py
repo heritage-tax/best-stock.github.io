@@ -11,7 +11,7 @@ KIS 미연결 시 마지막 종가로 폴백(개발/장외 테스트). 신호는
 환경변수: TELEGRAM_*, KIS_*, MONITOR_INTERVAL(기본300), STOP_PCT(기본-0.10), WATCH_MAX(기본200)
 """
 import os, sys, time, datetime
-import data as D, regime as R, strategy as S, selection as SEL, notify_telegram as TG
+import data as D, regime as R, strategy as S, selection as SEL, notify_telegram as TG, signal_log as SL
 try: import gbm_model as G
 except Exception: G = None
 try: import data_kis as KIS
@@ -32,14 +32,21 @@ def live_price(code, fallback):
     return fallback
 
 def c_live(code):
-    """과거 종가 + 실시간가(오늘)로 시리즈 구성 → (C, last_index)."""
+    """과거 종가 + 실시간가(오늘)로 시리즈 구성 → (C, last_index, V).
+    오늘 거래량은 미상이므로 직전 20일 평균(=중립, 비율≈1)으로 채움."""
     p = D.prices(code)
-    if not p or len(p) < 70: return None, None
+    if not p or len(p) < 70: return None, None, None
     dts = [d for d, _ in p]; C = [c for _, c in p]
+    v = D.volumes(code); V = list(v) if v else None
     lp = live_price(code, C[-1])
     today = datetime.date.today().isoformat()
-    C = (C[:-1] + [lp]) if dts[-1] == today else (C + [lp])
-    return C, len(C)-1
+    if dts[-1] == today:
+        C = C[:-1] + [lp]
+    else:
+        C = C + [lp]
+        if V is not None:
+            V = V + [sum(V[-20:])/20 if len(V) >= 20 else V[-1]]
+    return C, len(C)-1, V
 
 def held_positions():
     if KIS_ON:
@@ -57,21 +64,21 @@ def cycle(state):
     today = datetime.date.today().isoformat()
     if state.get('day') != today:
         state.update(day=today, buy=set(), sell=set())
-    view = R.assess(D.prices('^KS200')[-1][0])
+    view = R.assess(D.prices(D.BENCH)[-1][0])
     spec = S.choose(view)
-    model = G.active_model() if G else None
+    model = G.active_model() if (G and os.environ.get('USE_GBM_RANK', '0') == '1') else None
     sigfn = {'meanrev_confluence': SEL._meanrev, 'momentum_overnight': SEL._momentum,
              'defensive': SEL._defensive}.get(spec.signal)
 
     # --- 매수 후보 스캔 ---
     cands = []
     for u in D.universe()[:WATCH_MAX]:
-        C, i = c_live(u['code'])
+        C, i, V = c_live(u['code'])
         if C is None or not sigfn: continue
         c = sigfn(spec, C, i, u['code'], u['name'])
         if c:
             if model is not None:
-                g = G.predict_at(model, C, i)
+                g = G.predict_at(model, C, i, V)
                 if g is not None: c.gbm = g
             cands.append(c)
     use_gbm = model is not None and any(x.gbm is not None for x in cands)
@@ -84,11 +91,14 @@ def cycle(state):
             f"• *{c.name}*({c.code}) @ {c.entry:,.0f} | 손절 {c.stop:,.0f} 목표 {c.target:,.0f}"
             + (f" | GBM {c.gbm*100:+.1f}%" if c.gbm is not None else "") for c in new_buys)
             + "\n⚠️ 참고용. 직접 판단·실행.")
+        SL.log_signals('buy', [{'code': c.code, 'name': c.name, 'entry': c.entry,
+                                'stop': c.stop, 'target': c.target, 'reason': c.reason}
+                               for c in new_buys], view.regime.value, today)
 
     # --- 매도(보유종목 청산) 신호 ---
     new_sells = []
     for code, pos in held_positions().items():
-        C, i = c_live(code)
+        C, i, V = c_live(code)
         if C is None: continue
         sma20 = D.sma(C, 20, i); px = C[i]; avg = pos.get('avg', 0)
         if sma20 and px >= sma20: reason = f"평균선 복귀(익절) @ {px:,.0f}"
@@ -100,12 +110,16 @@ def cycle(state):
         TG.send(f"🔴 *매도신호* {today}\n" + "\n".join(
             f"• *{n}*({c}) {r}" + (f" (평가손익 {pl:+.1f}%)" if pl is not None else "")
             for n, c, r, pl in new_sells) + "\n⚠️ 참고용. 직접 판단·실행.")
+        SL.log_signals('sell', [{'code': c, 'name': n, 'reason': r}
+                                for n, c, r, pl in new_sells], view.regime.value, today)
     return len(new_buys), len(new_sells)
 
 def main():
     once = '--once' in sys.argv
     state = {}
-    print(f"[monitor] 시작 interval={INTERVAL}s KIS={'ON' if KIS_ON else 'OFF(종가폴백)'} GBM={'ON' if (G and G.active_model()) else 'OFF'}")
+    gbm_on = bool(G and os.environ.get('USE_GBM_RANK', '0') == '1' and G.active_model())
+    print(f"[monitor] 시작 interval={INTERVAL}s KIS={'ON' if KIS_ON else 'OFF(종가폴백)'} "
+          f"랭킹={'GBM' if gbm_on else '룰(score)'} 벤치={D.BENCH}")
     while True:
         try:
             if once or market_open():

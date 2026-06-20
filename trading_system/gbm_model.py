@@ -14,8 +14,11 @@ PARAMS = {'objective': 'regression', 'num_leaves': 15, 'learning_rate': 0.03,
           'min_child_samples': 200, 'bagging_fraction': 0.8, 'bagging_freq': 1,
           'feature_fraction': 0.8, 'seed': 0, 'verbose': -1}
 
-def features(C, i):
-    """index i 시점 피처(과거만 사용). 부족하면 None."""
+FEATURE_NAMES = ['rsi', 'dev_sma20', 'dev_sma60', 'bb_pos', 'mom5', 'mom20', 'mom60',
+                 'vol', 'dist_52w_high', 'dist_20d_high', 'vol_ratio', 'vol_trend']
+
+def features(C, i, V=None):
+    """index i 시점 피처(과거만 사용). 부족하면 None. V(거래량) 있으면 거래량 피처 2개 추가."""
     if i < 60:
         return None
     sma20 = sum(C[i-19:i+1])/20; sma60 = sum(C[i-59:i+1])/60
@@ -26,9 +29,17 @@ def features(C, i):
     ag, al = g/14, l/14; rsi = 100-100/(1+ag/al) if al > 0 else 100
     rr = [C[k]/C[k-1]-1 for k in range(i-19, i+1)]; mr = sum(rr)/20
     vol = (sum((x-mr)**2 for x in rr)/20)**0.5
+    # 거래량 피처: 당일 거래량/20일평균(투매·관심 급증), 5일평균/20일평균(거래량 추세)
+    if V is not None and len(V) > i and i >= 20:
+        va20 = sum(V[i-19:i+1])/20
+        vr = (V[i]/va20) if va20 > 0 else 1.0
+        vt = (sum(V[i-4:i+1])/5 / va20) if va20 > 0 else 1.0
+    else:
+        vr = 1.0; vt = 1.0
     return [rsi, C[i]/sma20-1, C[i]/sma60-1, (C[i]-sma20)/(2*sd) if sd > 0 else 0,
             C[i]/C[i-5]-1, C[i]/C[i-20]-1, C[i]/C[i-60]-1, vol,
-            C[i]/max(C[max(0, i-251):i+1])-1, C[i]/max(C[i-20:i+1])-1]
+            C[i]/max(C[max(0, i-251):i+1])-1, C[i]/max(C[i-20:i+1])-1,
+            vr, vt]
 
 def _build_training(asof):
     X, y = [], []
@@ -36,10 +47,11 @@ def _build_training(asof):
         p = D.prices(u['code'])
         if not p or len(p) < 320: continue
         dts = [d for d, _ in p]; C = [c for _, c in p]
+        v = D.volumes(u['code']); V = list(v) if v else None
         for t in range(60, len(C)-FWD):
             if dts[t+FWD] > asof:      # 타깃이 asof 시점에 아직 실현 안 됨 → 누수 방지
                 break
-            f = features(C, t)
+            f = features(C, t, V)
             if f: X.append(f); y.append(C[t+FWD]/C[t]-1)
     return X, y
 
@@ -68,9 +80,9 @@ def active_model(path=MODEL_PATH):
             _M['b'] = None
     return _M['b']
 
-def predict_at(booster, C, i):
+def predict_at(booster, C, i, V=None):
     import numpy as np
-    f = features(C, i)
+    f = features(C, i, V)
     if f is None: return None
     return float(booster.predict(np.array([f]))[0])
 

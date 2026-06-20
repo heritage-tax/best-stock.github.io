@@ -22,7 +22,8 @@ def _idx(dts, date):
     cand = [k for k, d in enumerate(dts) if d <= date]
     return cand[-1] if cand else None
 
-def assess(date, kospi='^KS200', sp='^GSPC', vix='^VIX'):
+def assess(date, kospi=None, sp='^GSPC', vix='^VIX'):
+    kospi = kospi or D.BENCH
     ks = D.prices(kospi)
     if not ks:
         return RegimeView(Regime.SIDEWAYS, "박스권", 0, 0.0, rationale="지수 데이터 없음")
@@ -35,7 +36,7 @@ def assess(date, kospi='^KS200', sp='^GSPC', vix='^VIX'):
     f['idx>200MA'] = 1 if C[i] > ma200 else -1
     ma200p = D.sma(C, 200, i-40)
     f['200MA_slope'] = 1 if (ma200p and ma200 > ma200p) else -1
-    hi = max(C[i-251:i+1]); dd = C[i]/hi - 1
+    hi = max(C[max(0, i-251):i+1]); dd = C[i]/hi - 1
     f['drawdown'] = 1 if dd > -0.05 else (-1 if dd < -0.20 else 0)
     vol = D.realized_vol(C, 20, i) or 0
     f['volatility'] = 1 if vol < 0.15 else (-1 if vol > 0.30 else 0)

@@ -1,15 +1,50 @@
 """종목선정팀: 전략 신호(국면 게이트)로 후보 필터 → GBM 예측수익으로 재랭킹(없으면 손코딩 점수)."""
 from dataclasses import dataclass
+import os
 import data as D
 try:
     import gbm_model as G
 except Exception:
     G = None
 
+# GBM 랭킹은 OOS 종목선택력이 없어 기본 OFF. 룰 기반(과매도 깊이 score)으로 랭킹.
+# 되살리려면 config.sh 에 USE_GBM_RANK=1.
+USE_GBM_RANK = os.environ.get('USE_GBM_RANK', '0') == '1'
+
 @dataclass
 class Candidate:
     code: str; name: str; entry: float; stop: float; target: float; score: float; reason: str
     gbm: float = None   # GBM 예측 10일수익(있으면 랭킹 기준)
+
+# 하락장 추천용 1배 인버스 ETF (지수 하락 시 수익). 개인 공매도는 비현실적이라 인버스로 대체.
+INVERSE_ETFS = [{'code': '114800.KS', 'name': 'KODEX 인버스'}]
+
+def _inverse(code, name, C, i, stop=-0.08, target=0.15):
+    """1배 인버스: 인버스가 20일선 위(=지수 하락추세 진행)일 때만 매수. 익절 시 정점 추격 방지."""
+    sma20 = D.sma(C, 20, i)
+    if sma20 is None or i < 20:
+        return None
+    if C[i] > sma20:   # 인버스 상승추세 = 시장 하락추세 살아있음
+        mom = C[i] / sma20 - 1
+        return Candidate(code, name, C[i], C[i]*(1+stop), C[i]*(1+target),
+                         round(mom*100, 1),
+                         f"하락장 인버스(-1x) 매수 · 지수↓ 베팅 (20일선 +{mom*100:.0f}%)")
+    return None
+
+def _inverse_candidates(date):
+    out = []
+    for iv in INVERSE_ETFS:
+        p = D.prices(iv['code'])
+        if not p:
+            continue
+        dts = [d for d, _ in p]; C = [c for _, c in p]
+        i = _i(dts, date)
+        if i is None or i < 20:
+            continue
+        c = _inverse(iv['code'], iv['name'], C, i)
+        if c:
+            out.append(c)
+    return out
 
 def _i(dts, date):
     cand = [k for k, d in enumerate(dts) if d <= date]
@@ -25,7 +60,7 @@ def _rsi(C, n, i):
 
 def pick(spec, date, universe=None, max_cands=None):
     universe = universe or D.universe()
-    model = G.active_model() if G is not None else None   # 국면 게이트 안에서 재랭킹용
+    model = G.active_model() if (G is not None and USE_GBM_RANK) else None   # 기본 OFF → score 랭킹
     out = []
     for u in universe:
         p = D.prices(u['code'])
@@ -39,13 +74,17 @@ def pick(spec, date, universe=None, max_cands=None):
         elif spec.signal == "defensive": c = _defensive(spec, C, i, u['code'], u['name'])
         if c:
             if model is not None:
-                g = G.predict_at(model, C, i)
+                v = D.volumes(u['code']); V = list(v) if v else None
+                g = G.predict_at(model, C, i, V)
                 if g is not None:
                     c.gbm = g; c.reason += f" | GBM {g*100:+.1f}%"
             out.append(c)
     # GBM 예측이 있으면 그걸로 랭킹, 없으면 손코딩 score
     use_gbm = model is not None and any(x.gbm is not None for x in out)
     out.sort(key=lambda x: -(x.gbm if (use_gbm and x.gbm is not None) else x.score))
+    # 하락장: 인버스 ETF를 최우선 후보로 (GBM은 개별주 학습이라 인버스엔 미적용)
+    if spec.signal == "defensive":
+        out = _inverse_candidates(date) + out
     return out[:(max_cands or spec.sizing.get('slots', 15))]
 
 def _meanrev(spec, C, i, code, name):
