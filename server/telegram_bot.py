@@ -9,6 +9,7 @@
 명령어:
   /help        - 사용법
   /status      - 서버 상태
+  /clear       - 대화 기록 초기화
   아무 텍스트   - Claude에게 직접 전달 (코드 작성·실행·분석 등)
 """
 
@@ -17,7 +18,7 @@ import sys
 import time
 import logging
 import subprocess
-import tempfile
+from collections import deque
 from pathlib import Path
 
 import requests
@@ -33,17 +34,22 @@ logging.basicConfig(
 log = logging.getLogger("tg_bot")
 
 BOT_TOKEN      = os.environ["TELEGRAM_BOT_TOKEN"]
-ALLOWED_CHAT   = os.environ["TELEGRAM_CHAT_ID"]   # 본인 chat_id만 허용
-CLAUDE_CMD     = os.environ.get("CLAUDE_CMD", "claude")  # claude CLI 경로
-MAX_REPLY_LEN  = 4000   # 텔레그램 메시지 최대 길이
-CLAUDE_TIMEOUT = 300    # Claude 응답 대기 최대 5분
+ALLOWED_CHAT   = os.environ["TELEGRAM_CHAT_ID"]
+CLAUDE_CMD     = os.environ.get("CLAUDE_CMD", "claude")
+MAX_REPLY_LEN  = 4000
+CLAUDE_TIMEOUT = 300
+MAX_HISTORY    = 10  # 최대 대화 기록 (왕복 횟수)
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+# chat_id별 대화 기록 저장 {chat_id: deque([{role, content}, ...])}
+chat_histories: dict[str, deque] = {}
 
 HELP_TEXT = """🤖 *StockLens Claude 원격 제어*
 
 *사용법*
 텍스트를 그냥 보내면 Claude가 맥미니에서 실행합니다.
+대화 맥락을 기억하므로 이어서 질문할 수 있습니다.
 
 *예시*
 • 삼성전자 모멘텀 전략 백테스트 코드 짜줘
@@ -54,6 +60,7 @@ HELP_TEXT = """🤖 *StockLens Claude 원격 제어*
 *명령어*
 /help    - 이 도움말
 /status  - 서버 상태 확인
+/clear   - 대화 기록 초기화
 
 ⚠️ 코드 실행 결과는 최대 5분 내로 회신됩니다."""
 
@@ -102,14 +109,38 @@ def send_typing(chat_id: str):
     tg_get("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
 
+# ── 대화 기록 관리 ────────────────────────────────────────────
+def get_history(chat_id: str) -> deque:
+    if chat_id not in chat_histories:
+        chat_histories[chat_id] = deque(maxlen=MAX_HISTORY * 2)
+    return chat_histories[chat_id]
+
+
+def build_prompt(chat_id: str, user_message: str) -> str:
+    history = get_history(chat_id)
+    if not history:
+        return user_message
+
+    lines = ["[이전 대화 내용]"]
+    for entry in history:
+        role = "사용자" if entry["role"] == "user" else "어시스턴트"
+        lines.append(f"{role}: {entry['content']}")
+    lines.append("")
+    lines.append("[현재 질문]")
+    lines.append(f"사용자: {user_message}")
+    lines.append("어시스턴트:")
+    return "\n".join(lines)
+
+
+def save_exchange(chat_id: str, user_msg: str, assistant_msg: str):
+    history = get_history(chat_id)
+    history.append({"role": "user", "content": user_msg})
+    history.append({"role": "assistant", "content": assistant_msg[:500]})  # 요약 저장
+
+
 # ── Claude 실행 ───────────────────────────────────────────────
 def run_claude(prompt: str) -> str:
-    """
-    맥미니에 설치된 claude CLI를 print(-p) 모드로 실행.
-    claude -p "prompt"
-    """
     log.info(f"Claude 실행: {prompt[:80]}...")
-
     cmd = [CLAUDE_CMD, "-p", prompt]
 
     try:
@@ -141,7 +172,6 @@ def run_claude(prompt: str) -> str:
 def handle(chat_id: str, text: str):
     text = text.strip()
 
-    # 보안: 허용된 chat_id만
     if str(chat_id) != str(ALLOWED_CHAT):
         log.warning(f"차단된 chat_id: {chat_id}")
         return
@@ -151,21 +181,28 @@ def handle(chat_id: str, text: str):
         return
 
     if text.startswith("/status"):
+        history_count = len(get_history(chat_id)) // 2
         send(chat_id, (
             "✅ *맥미니 봇 실행 중*\n"
             f"• Claude CLI: `{CLAUDE_CMD}`\n"
             f"• 허용 chat_id: `{ALLOWED_CHAT}`\n"
-            f"• 최대 대기: {CLAUDE_TIMEOUT}초"
+            f"• 최대 대기: {CLAUDE_TIMEOUT}초\n"
+            f"• 대화 기록: {history_count}개"
         ))
         return
 
-    # 나머지는 Claude에게 전달
+    if text.startswith("/clear"):
+        chat_histories.pop(chat_id, None)
+        send(chat_id, "🗑️ 대화 기록이 초기화됐습니다.")
+        return
+
     send_typing(chat_id)
     send(chat_id, "검토중...")
 
-    result = run_claude(text)
+    prompt = build_prompt(chat_id, text)
+    result = run_claude(prompt)
 
-    # 결과가 길면 코드블록으로 감싸지 않음 (마크다운 충돌 방지)
+    save_exchange(chat_id, text, result)
     send(chat_id, result, parse_mode="")
 
 
@@ -177,7 +214,6 @@ def main():
     log.info(f"Claude CLI: {CLAUDE_CMD}")
     log.info("=" * 50)
 
-    # 봇 정보 확인
     me = tg_get("getMe")
     if me.get("ok"):
         bot_name = me["result"]["username"]
