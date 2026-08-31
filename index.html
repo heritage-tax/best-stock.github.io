@@ -905,6 +905,73 @@
   .risk-bar.high { background: var(--red); }
   .risk-val { font-family: var(--mono); font-size: 13px; color: var(--text); }
 
+  /* ── SETUP MODAL ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(8,12,16,0.92);
+    z-index: 500;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 32px;
+    width: 90%;
+    max-width: 480px;
+  }
+  .modal h2 { font-family: var(--serif); font-weight: 300; font-size: 24px; margin-bottom: 8px; }
+  .modal p { color: var(--text2); font-size: 13px; margin-bottom: 24px; line-height: 1.6; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text3); display: block; margin-bottom: 8px; }
+  .form-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 2px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-hint { font-size: 11px; color: var(--text3); margin-top: 6px; }
+  .modal-actions { display: flex; gap: 12px; margin-top: 24px; }
+  .conn-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px 16px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    color: var(--text3);
+    transition: all 0.2s;
+  }
+  .conn-status.connected { border-color: var(--accent); color: var(--accent); }
+  .conn-status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); }
+  .conn-status.connected .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  /* ── ORDER MODAL ── */
+  .order-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    width: 90%;
+    max-width: 380px;
+  }
+  .order-modal h3 { font-family: var(--mono); font-size: 13px; letter-spacing: 0.1em; margin-bottom: 20px; }
+
   /* ── RESPONSIVE ── */
   @media (max-width: 900px) {
     .hero { grid-template-columns: 1fr; padding-top: 120px; }
@@ -938,6 +1005,50 @@
 </head>
 <body>
 
+<!-- SETUP MODAL -->
+<div class="modal-overlay" id="setupModal">
+  <div class="modal">
+    <h2>서버 연결 설정</h2>
+    <p>맥미니에서 실행 중인 트레이딩 서버의 주소와 비밀번호를 입력하세요.<br>Cloudflare Tunnel 또는 ngrok URL을 사용하세요.</p>
+    <div class="form-group">
+      <label class="form-label">서버 URL</label>
+      <input class="form-input" id="cfgUrl" type="url" placeholder="https://your-tunnel.trycloudflare.com">
+      <div class="form-hint">Cloudflare Tunnel 또는 ngrok 주소</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Control Secret</label>
+      <input class="form-input" id="cfgSecret" type="password" placeholder="서버 .env에 설정한 CONTROL_SECRET">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" onclick="saveConfig()">연결 저장</button>
+      <button class="btn-secondary" onclick="closeSetup()">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORDER MODAL -->
+<div class="modal-overlay" id="orderModal">
+  <div class="order-modal">
+    <h3 id="orderModalTitle">매수 주문</h3>
+    <div class="form-group">
+      <label class="form-label">종목코드</label>
+      <input class="form-input" id="orderCode" placeholder="예: 005930" maxlength="6">
+    </div>
+    <div class="form-group">
+      <label class="form-label">수량</label>
+      <input class="form-input" id="orderQty" type="number" min="1" placeholder="주">
+    </div>
+    <div class="form-group">
+      <label class="form-label">가격</label>
+      <input class="form-input" id="orderPrice" type="number" min="1" placeholder="원 (현재가 자동입력)">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" id="orderSubmitBtn" onclick="submitOrder()">주문 전송</button>
+      <button class="btn-secondary" onclick="closeOrder()">취소</button>
+    </div>
+  </div>
+</div>
+
 <!-- MOBILE DRAWER -->
 <div class="mobile-drawer" id="mobileDrawer">
   <a href="#ai-trading" onclick="closeDrawer()">AI 트레이딩</a>
@@ -958,6 +1069,9 @@
     <li><a href="#dart">공시</a></li>
   </ul>
   <div style="display:flex;align-items:center;gap:12px">
+    <div class="conn-status" id="connStatus" onclick="openSetup()" title="서버 연결 설정">
+      <span class="dot"></span><span id="connLabel">미연결</span>
+    </div>
     <span class="nav-badge">LIVE</span>
     <button class="hamburger" id="hamburger" onclick="toggleDrawer()" aria-label="메뉴">
       <span></span><span></span><span></span>
@@ -1120,7 +1234,11 @@
   <div style="margin-top:24px">
     <div class="table-toolbar" style="background:var(--bg2);border:1px solid var(--border);border-bottom:none">
       <h3 class="ctrl-label" style="margin:0">보유 포지션</h3>
-      <button onclick="closeAllPositions()" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border:1px solid var(--red);background:rgba(255,77,106,0.05);color:var(--red);cursor:pointer;border-radius:1px;letter-spacing:0.05em">전체 청산</button>
+      <div style="display:flex;gap:8px">
+          <button onclick="openOrder('buy')" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border:1px solid var(--accent);background:rgba(0,229,160,0.05);color:var(--accent);cursor:pointer;border-radius:1px">+ 매수</button>
+          <button onclick="openOrder('sell')" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border:1px solid var(--gold);background:rgba(245,200,66,0.05);color:var(--gold);cursor:pointer;border-radius:1px">- 매도</button>
+          <button onclick="refreshBalance()" style="font-family:var(--mono);font-size:11px;padding:5px 14px;border:1px solid var(--border);background:none;color:var(--text3);cursor:pointer;border-radius:1px">↻</button>
+        </div>
     </div>
     <div class="position-list" id="positionList"></div>
   </div>
@@ -1232,97 +1350,184 @@ function closeDrawer() {
   setTimeout(() => { d.style.display = 'none'; }, 300);
 }
 
-/* ── TRADING CONTROLS ── */
-let tradingActive = true;
+/* ── 서버 연결 설정 ── */
+let serverUrl = '';
+let serverSecret = '';
+let tradingActive = false;
 let currentStrategy = '모멘텀';
+let orderSide = 'buy';
 
-function onSystemToggle(cb) {
-  tradingActive = cb.checked;
+function loadConfig() {
+  try {
+    serverUrl = localStorage.getItem('sl_server_url') || '';
+    serverSecret = localStorage.getItem('sl_server_secret') || '';
+  } catch(e) {}
+  updateConnStatus(false);
+  if (serverUrl) pingServer();
+}
+
+function openSetup() {
+  document.getElementById('cfgUrl').value = serverUrl;
+  document.getElementById('cfgSecret').value = serverSecret;
+  document.getElementById('setupModal').classList.add('open');
+}
+function closeSetup() {
+  document.getElementById('setupModal').classList.remove('open');
+}
+function saveConfig() {
+  serverUrl = document.getElementById('cfgUrl').value.trim().replace(/\/$/, '');
+  serverSecret = document.getElementById('cfgSecret').value.trim();
+  try {
+    localStorage.setItem('sl_server_url', serverUrl);
+    localStorage.setItem('sl_server_secret', serverSecret);
+  } catch(e) {}
+  closeSetup();
+  addLog('info', `서버 연결 시도: ${serverUrl}`);
+  pingServer();
+}
+
+async function apiGet(path) {
+  const r = await fetch(serverUrl + path, {
+    headers: { 'x-secret': serverSecret }
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+async function apiPost(path, body) {
+  const r = await fetch(serverUrl + path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-secret': serverSecret },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+function updateConnStatus(connected) {
+  const el = document.getElementById('connStatus');
+  const label = document.getElementById('connLabel');
+  if (connected) {
+    el.classList.add('connected');
+    label.textContent = '서버 연결됨';
+  } else {
+    el.classList.remove('connected');
+    label.textContent = serverUrl ? '서버 끊김' : '미연결';
+  }
+}
+
+async function pingServer() {
+  if (!serverUrl) return;
+  try {
+    const data = await fetch(serverUrl + '/api/status').then(r => r.json());
+    updateConnStatus(true);
+    tradingActive = data.trading_active;
+    currentStrategy = data.strategy || currentStrategy;
+    updateSystemUI();
+    addLog('info', `서버 연결 성공 · ${data.server_time}`);
+    await refreshBalance();
+    await fetchSignals();
+  } catch(e) {
+    updateConnStatus(false);
+    addLog('warn', `서버 연결 실패: ${e.message}`);
+  }
+}
+
+function updateSystemUI() {
   const badge = document.getElementById('systemStatus');
   const label = document.getElementById('systemToggleLabel');
+  const cb = document.getElementById('systemToggle');
   const fab = document.getElementById('fab');
+  cb.checked = tradingActive;
   if (tradingActive) {
     badge.className = 'status-badge status-active';
     badge.textContent = '● 실행 중';
     label.textContent = 'ON';
     fab.textContent = '⏸';
     fab.classList.remove('paused');
-    addLog('info', '시스템 시작 — AI 트레이딩 활성화');
   } else {
     badge.className = 'status-badge status-paused';
     badge.textContent = '⏸ 일시정지';
     label.textContent = 'OFF';
     fab.textContent = '▶';
     fab.classList.add('paused');
-    addLog('warn', '시스템 일시정지 — 신규 진입 중단');
   }
 }
 
-function toggleTradingFAB() {
+async function onSystemToggle(cb) {
+  if (!serverUrl) { cb.checked = !cb.checked; openSetup(); return; }
+  try {
+    const data = await apiPost('/api/system/toggle', {});
+    tradingActive = data.trading_active;
+    updateSystemUI();
+    addLog('info', tradingActive ? '시스템 활성화' : '시스템 일시정지');
+  } catch(e) {
+    cb.checked = !cb.checked;
+    addLog('warn', `토글 실패: ${e.message}`);
+  }
+}
+
+async function toggleTradingFAB() {
   const cb = document.getElementById('systemToggle');
-  cb.checked = !cb.checked;
-  onSystemToggle(cb);
+  await onSystemToggle({ checked: !tradingActive });
   document.getElementById('ai-trading').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function selectStrategy(el, name) {
+async function selectStrategy(el, name) {
   document.querySelectorAll('.strategy-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   currentStrategy = name;
   document.getElementById('strategyStatus').textContent = name;
+  if (serverUrl) {
+    try { await apiPost('/api/strategy', { name }); } catch(e) {}
+  }
   addLog('info', `전략 변경 → ${name}`);
 }
 
-function updateRisk(val) {
-  document.getElementById('riskVal').textContent = val + '%';
-}
-function updateStopLoss(val) {
-  document.getElementById('stopLossVal').textContent = '-' + val + '%';
+function updateRisk(val) { document.getElementById('riskVal').textContent = val + '%'; }
+function updateStopLoss(val) { document.getElementById('stopLossVal').textContent = '-' + val + '%'; }
+
+/* ── 잔고 / 포지션 ── */
+async function refreshBalance() {
+  if (!serverUrl) return;
+  try {
+    const data = await apiGet('/api/balance');
+    document.getElementById('positionCount').textContent = data.positions.length;
+    const pnl = data.total_pnl;
+    const pnlEl = document.getElementById('todayPnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + pnl.toLocaleString();
+    pnlEl.className = 'ctrl-val ' + (pnl >= 0 ? 'up' : 'dn');
+
+    const cashEl = document.querySelector('.ctrl-sub');
+    if (cashEl) cashEl.innerHTML = `원 · 총평가 <span style="color:var(--text2)">${Math.round(data.total_eval/10000).toLocaleString()}만</span>`;
+
+    renderPositions(data.positions);
+  } catch(e) {
+    addLog('warn', `잔고조회 실패: ${e.message}`);
+  }
 }
 
-function closeAllPositions() {
-  if (!confirm('보유 포지션을 전체 청산하시겠습니까?')) return;
-  addLog('sell', '전체 청산 주문 전송');
-  document.getElementById('positionList').innerHTML =
-    '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3)">보유 포지션 없음</div>';
-  document.getElementById('positionCount').textContent = '0';
-  document.getElementById('todayPnl').textContent = '+284,500';
-}
-
-/* ── POSITIONS ── */
-const positions = [
-  {name:'삼성전자', code:'005930', qty:30, avgPrice:72400, curPrice:74800, pnl:72000, pnlPct:3.31},
-  {name:'SK하이닉스', code:'000660', qty:5, avgPrice:183200, curPrice:191400, pnl:41000, pnlPct:4.47},
-  {name:'알테오젠', code:'196170', qty:3, avgPrice:268000, curPrice:284000, pnl:48000, pnlPct:5.97},
-  {name:'카카오', code:'035720', qty:20, avgPrice:48900, curPrice:47350, pnl:-31000, pnlPct:-3.17},
-];
-
-function renderPositions() {
-  document.getElementById('positionList').innerHTML = positions.map(p => `
+function renderPositions(positions) {
+  const el = document.getElementById('positionList');
+  if (!positions || positions.length === 0) {
+    el.innerHTML = '<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3)">보유 포지션 없음</div>';
+    return;
+  }
+  el.innerHTML = positions.map(p => `
     <div class="position-item">
       <div>
         <div class="pos-name">${p.name}</div>
         <div class="pos-code">${p.code}</div>
       </div>
-      <div class="pos-qty">${p.qty}주<br><span style="font-size:10px">평균 ${p.avgPrice.toLocaleString()}</span></div>
-      <div class="pos-price">${p.curPrice.toLocaleString()}원</div>
+      <div class="pos-qty">${p.qty.toLocaleString()}주<br><span style="font-size:10px">평균 ${p.avg_price.toLocaleString()}</span></div>
+      <div class="pos-price">${p.cur_price.toLocaleString()}원</div>
       <div class="pos-pnl ${p.pnl >= 0 ? 'up' : 'dn'}">
         ${p.pnl >= 0 ? '+' : ''}${p.pnl.toLocaleString()}원<br>
-        <span style="font-size:10px">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct}%</span>
+        <span style="font-size:10px">${p.pnl_pct >= 0 ? '+' : ''}${p.pnl_pct.toFixed(2)}%</span>
       </div>
     </div>`).join('');
 }
-renderPositions();
 
-/* ── SIGNAL LOG ── */
-const initLogs = [
-  {cls:'info', msg:'시스템 초기화 완료 — StockLens AI v2.1'},
-  {cls:'buy',  msg:'매수 신호: 알테오젠(196170) 3주 @ 268,000원'},
-  {cls:'info', msg:'전략 스캔 완료 — 모멘텀 상위 12종목 감지'},
-  {cls:'sell', msg:'익절 청산: 포스코홀딩스(005490) 5주 @ 318,500원'},
-  {cls:'buy',  msg:'매수 신호: SK하이닉스(000660) 5주 @ 183,200원'},
-  {cls:'warn', msg:'주의: 카카오(035720) 손절 근접 (-2.8%)'},
-];
+/* ── 시그널 로그 ── */
 let logEl;
 function addLog(type, msg) {
   if (!logEl) logEl = document.getElementById('signalLog');
@@ -1330,32 +1535,74 @@ function addLog(type, msg) {
   const t = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0');
   const line = document.createElement('div');
   line.className = 'log-line';
-  line.innerHTML = `<span class="log-time">${t}</span><span class="log-${type}">[${type.toUpperCase()}]</span><span>${msg}</span>`;
+  const kindMap = { buy:'buy', sell:'sell', info:'info', warn:'warn' };
+  const cls = kindMap[type] || 'info';
+  line.innerHTML = `<span class="log-time">${t}</span><span class="log-${cls}">[${type.toUpperCase()}]</span><span>${msg}</span>`;
   logEl.prepend(line);
 }
-function initLogs_render() {
-  logEl = document.getElementById('signalLog');
-  initLogs.forEach((l, i) => {
-    setTimeout(() => addLog(l.cls, l.msg), i * 80);
-  });
-}
-initLogs_render();
 
-/* ── AUTO LOG SIMULATION ── */
-const autoSignals = [
-  () => addLog('info', `${currentStrategy} 전략 — 시장 스캔 중`),
-  () => addLog('buy', `매수 신호: 삼성바이오로직스(207940) @ 812,000원`),
-  () => addLog('info', `KOSPI 지수 2,748 → 상승 모멘텀 감지`),
-  () => addLog('warn', `변동성 급등: 에코프로비엠(247540) ±4.2%`),
-  () => addLog('sell', `목표가 도달: NAVER(035420) 2주 청산`),
-];
-let sigIdx = 0;
-setInterval(() => {
-  if (tradingActive) {
-    autoSignals[sigIdx % autoSignals.length]();
-    sigIdx++;
+async function fetchSignals() {
+  if (!serverUrl) return;
+  try {
+    const data = await apiGet('/api/signals');
+    (data.signals || []).forEach(s => addLog(s.kind, s.msg));
+  } catch(e) {}
+}
+
+/* ── 주문 ── */
+function openOrder(side) {
+  if (!serverUrl) { openSetup(); return; }
+  orderSide = side;
+  document.getElementById('orderModalTitle').textContent = side === 'buy' ? '🟢 매수 주문' : '🔴 매도 주문';
+  document.getElementById('orderSubmitBtn').style.background = side === 'buy' ? 'var(--accent)' : 'var(--red)';
+  document.getElementById('orderCode').value = '';
+  document.getElementById('orderQty').value = '';
+  document.getElementById('orderPrice').value = '';
+  document.getElementById('orderModal').classList.add('open');
+}
+function closeOrder() {
+  document.getElementById('orderModal').classList.remove('open');
+}
+
+document.getElementById('orderCode').addEventListener('blur', async function() {
+  const code = this.value.trim();
+  if (code.length !== 6) return;
+  try {
+    const data = await fetch(serverUrl + '/api/price/' + code).then(r => r.json());
+    document.getElementById('orderPrice').value = data.price;
+    addLog('info', `${data.name}(${code}) 현재가: ${data.price.toLocaleString()}원`);
+  } catch(e) {}
+});
+
+async function submitOrder() {
+  const code = document.getElementById('orderCode').value.trim();
+  const qty = parseInt(document.getElementById('orderQty').value);
+  const price = parseInt(document.getElementById('orderPrice').value);
+  if (!code || !qty || !price) { alert('종목코드, 수량, 가격을 모두 입력하세요.'); return; }
+  const sideKr = orderSide === 'buy' ? '매수' : '매도';
+  if (!confirm(`${sideKr} 주문\n\n종목: ${code}\n수량: ${qty}주\n가격: ${price.toLocaleString()}원\n금액: ${(qty*price).toLocaleString()}원\n\n실전 주문입니다. 진행하시겠습니까?`)) return;
+  try {
+    const result = await apiPost('/api/order', { code, qty, price, side: orderSide });
+    addLog(orderSide, `${sideKr} 완료: ${code} ${qty}주 @${price.toLocaleString()}원 · ${result.msg}`);
+    closeOrder();
+    setTimeout(refreshBalance, 2000);
+  } catch(e) {
+    addLog('warn', `주문 실패: ${e.message}`);
+    alert('주문 실패: ' + e.message);
   }
-}, 8000);
+}
+
+/* ── 초기화 ── */
+addLog('info', 'StockLens 초기화 중...');
+loadConfig();
+
+// 30초마다 잔고·신호 자동 갱신
+setInterval(async () => {
+  if (serverUrl) {
+    await refreshBalance();
+    await fetchSignals();
+  }
+}, 30000);
 
 /* ───────────── DATA ───────────── */
 const tickerData = [
