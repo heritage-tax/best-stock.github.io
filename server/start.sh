@@ -26,9 +26,19 @@ source venv/bin/activate
 pip install -q -r requirements.txt
 
 echo ""
-echo "✅ StockLens 트레이딩 서버 시작"
+echo "✅ StockLens 서버 시작"
 echo "   포트: ${PORT:-8000}"
 echo "   계좌: ${KIS_ACCOUNT_NO}"
+echo "   텔레그램 봇: ${TELEGRAM_BOT_TOKEN:0:10}..."
 echo ""
 
+# 텔레그램 봇을 백그라운드에서 실행
+python telegram_bot.py &
+BOT_PID=$!
+echo "📱 텔레그램 봇 PID: $BOT_PID"
+
+# FastAPI 서버 실행 (포어그라운드)
 python main.py
+
+# 서버 종료 시 봇도 종료
+kill $BOT_PID 2>/dev/null
