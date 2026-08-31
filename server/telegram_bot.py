@@ -39,6 +39,10 @@ CLAUDE_CMD     = os.environ.get("CLAUDE_CMD", "claude")
 MAX_REPLY_LEN  = 4000
 CLAUDE_TIMEOUT = 300
 MAX_HISTORY    = 10  # 최대 대화 기록 (왕복 횟수)
+ALLOWED_TOOLS  = os.environ.get(
+    "CLAUDE_ALLOWED_TOOLS",
+    "WebSearch,WebFetch,Bash,Read,Write,Edit"
+)
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -135,13 +139,13 @@ def build_prompt(chat_id: str, user_message: str) -> str:
 def save_exchange(chat_id: str, user_msg: str, assistant_msg: str):
     history = get_history(chat_id)
     history.append({"role": "user", "content": user_msg})
-    history.append({"role": "assistant", "content": assistant_msg[:500]})  # 요약 저장
+    history.append({"role": "assistant", "content": assistant_msg[:500]})
 
 
 # ── Claude 실행 ───────────────────────────────────────────────
 def run_claude(prompt: str) -> str:
     log.info(f"Claude 실행: {prompt[:80]}...")
-    cmd = [CLAUDE_CMD, "-p", prompt]
+    cmd = [CLAUDE_CMD, "-p", prompt, "--allowedTools", ALLOWED_TOOLS]
 
     try:
         result = subprocess.run(
