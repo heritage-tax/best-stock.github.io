@@ -161,7 +161,7 @@ def handle(chat_id: str, text: str):
 
     # 나머지는 Claude에게 전달
     send_typing(chat_id)
-    send(chat_id, "⏳ Claude가 작업 중입니다...")
+    send(chat_id, "검토중...")
 
     result = run_claude(text)
 
